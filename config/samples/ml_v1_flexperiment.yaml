@@ -1,0 +1,9 @@
+apiVersion: ml.example.com/v1
+kind: FLExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: fl-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: flexperiment-sample
+spec:
+  # TODO(user): Add fields here
