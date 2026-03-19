@@ -10,8 +10,8 @@ type FLExperimentSpec struct {
 	// 联邦学习任务的容器镜像
 	Image string `json:"image"`
 
-	// Trainer 节点数量
-	TrainerReplicas int32 `json:"trainerReplicas"`
+	// Worker 节点数量
+	WorkerReplicas int32 `json:"workerReplicas"`
 
 	// 联邦学习的轮次
 	Rounds int32 `json:"rounds,omitempty"`
@@ -22,14 +22,20 @@ type FLExperimentSpec struct {
 
 // FLExperimentStatus defines the observed state of FLExperiment
 type FLExperimentStatus struct {
-	// 当前阶段: Pending, Running, Completed, Failed
+	// 当前阶段: "" → CreatingMaster → MasterRunning → CreatingWorkers → Training → Completed / Failed
 	Phase string `json:"phase,omitempty"`
 
-	// Aggregator Pod 名称
-	AggregatorPod string `json:"aggregatorPod,omitempty"`
+	// Master Pod 名称
+	MasterPod string `json:"masterPod,omitempty"`
 
-	// Trainer Pods 名称列表
-	TrainerPods []string `json:"trainerPods,omitempty"`
+	// Worker Pods 名称列表
+	WorkerPods []string `json:"workerPods,omitempty"`
+
+	// 已就绪的 Worker 数量（已 Running）
+	ReadyWorkers int32 `json:"readyWorkers,omitempty"`
+
+	// 当前训练轮次（由 Controller 轮询 Master /status 获取）
+	CurrentRound int32 `json:"currentRound,omitempty"`
 }
 
 // +kubebuilder:object:root=true

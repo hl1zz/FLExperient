@@ -105,25 +105,34 @@ spec:
                 description: 联邦学习的轮次
                 format: int32
                 type: integer
-              trainerReplicas:
-                description: Trainer 节点数量
+              workerReplicas:
+                description: Worker 节点数量
                 format: int32
                 type: integer
             required:
             - image
-            - trainerReplicas
+            - workerReplicas
             type: object
           status:
             description: FLExperimentStatus defines the observed state of FLExperiment
             properties:
-              aggregatorPod:
-                description: Aggregator Pod 名称
+              currentRound:
+                description: 当前训练轮次（由 Controller 轮询 Master /status 获取）
+                format: int32
+                type: integer
+              masterPod:
+                description: Master Pod 名称
                 type: string
               phase:
-                description: '当前阶段: Pending, Running, Completed, Failed'
+                description: '当前阶段: "" → CreatingMaster → MasterRunning → CreatingWorkers
+                  → Training → Completed / Failed'
                 type: string
-              trainerPods:
-                description: Trainer Pods 名称列表
+              readyWorkers:
+                description: 已就绪的 Worker 数量（已 Running）
+                format: int32
+                type: integer
+              workerPods:
+                description: Worker Pods 名称列表
                 items:
                   type: string
                 type: array
