@@ -14,7 +14,26 @@ spec:
     singular: flexperiment
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.masterPod
+      name: Master
+      type: string
+    - jsonPath: .spec.workerReplicas
+      name: Workers
+      type: integer
+    - jsonPath: .status.readyWorkers
+      name: Ready
+      type: integer
+    - jsonPath: .spec.rounds
+      name: Rounds
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: FLExperiment is the Schema for the flexperiments API

@@ -40,6 +40,12 @@ type FLExperimentStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Master",type=string,JSONPath=`.status.masterPod`
+// +kubebuilder:printcolumn:name="Workers",type=integer,JSONPath=`.spec.workerReplicas`
+// +kubebuilder:printcolumn:name="Ready",type=integer,JSONPath=`.status.readyWorkers`
+// +kubebuilder:printcolumn:name="Rounds",type=integer,JSONPath=`.spec.rounds`
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`
 
 // FLExperiment is the Schema for the flexperiments API
 type FLExperiment struct {
