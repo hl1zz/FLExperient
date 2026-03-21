@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	mlv1 "github.com/yourusername/fl-operator/api/v1"
+	volcano "github.com/yourusername/fl-operator/api/volcano"
 	"github.com/yourusername/fl-operator/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
@@ -51,6 +52,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(mlv1.AddToScheme(scheme))
+	utilruntime.Must(volcano.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

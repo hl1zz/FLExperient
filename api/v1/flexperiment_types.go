@@ -22,7 +22,8 @@ type FLExperimentSpec struct {
 
 // FLExperimentStatus defines the observed state of FLExperiment
 type FLExperimentStatus struct {
-	// 当前阶段: "" → CreatingMaster → MasterRunning → CreatingWorkers → Training → Completed / Failed
+	// 当前阶段:
+	// "" → CreatingMaster → MasterRunning → CreatingWorkerGroup → CreatingWorkers → WaitingGangScheduled → Training → Completed / Failed
 	Phase string `json:"phase,omitempty"`
 
 	// Master Pod 名称
@@ -36,6 +37,9 @@ type FLExperimentStatus struct {
 
 	// 当前训练轮次（由 Controller 轮询 Master /status 获取）
 	CurrentRound int32 `json:"currentRound,omitempty"`
+
+	// Volcano PodGroup 名称
+	PodGroupName string `json:"podGroupName,omitempty"`
 }
 
 // +kubebuilder:object:root=true

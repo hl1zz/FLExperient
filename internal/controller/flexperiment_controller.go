@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	schedulingv1beta1 "github.com/yourusername/fl-operator/api/volcano"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,7 @@ type FLExperimentReconciler struct {
 // +kubebuilder:rbac:groups=ml.example.com,resources=flexperiments/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=scheduling.volcano.sh,resources=podgroups,verbs=get;list;watch;create;update;patch;delete
 
 func (r *FLExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -58,13 +60,17 @@ func (r *FLExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	case "CreatingMaster":
 		return r.reconcileWaitMasterRunning(ctx, &exp, masterName)
 
-	// ========== 阶段 3: Master Running，创建 Workers ==========
+	// ========== 阶段 3: Master Running，创建 PodGroup ==========
 	case "MasterRunning":
+		return r.reconcileCreatingWorkerGroup(ctx, &exp)
+
+	// ========== 阶段 4: PodGroup 已创建，创建 Workers ==========
+	case "CreatingWorkerGroup":
 		return r.reconcileCreatingWorkers(ctx, &exp, masterSvcName)
 
-	// ========== 阶段 4: 等所有 Worker Running ==========
+	// ========== 阶段 5: 等 Volcano gang 调度所有 Worker Running ==========
 	case "CreatingWorkers":
-		return r.reconcileWaitWorkersRunning(ctx, &exp)
+		return r.reconcileWaitingGangScheduled(ctx, &exp)
 
 	// ========== 阶段 5: 训练中，监控状态 ==========
 	case "Training":
@@ -208,7 +214,49 @@ func (r *FLExperimentReconciler) reconcileWaitMasterRunning(ctx context.Context,
 	}
 }
 
-// ========== 阶段 3: 创建 Workers ==========
+// ========== 阶段 3: 创建 Volcano PodGroup ==========
+func (r *FLExperimentReconciler) reconcileCreatingWorkerGroup(ctx context.Context, exp *mlv1.FLExperiment) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	pgName := exp.Name + "-workers-gang"
+
+	pg := &schedulingv1beta1.PodGroup{}
+	err := r.Get(ctx, types.NamespacedName{Name: pgName, Namespace: exp.Namespace}, pg)
+	if err != nil && errors.IsNotFound(err) {
+		logger.Info("Creating Volcano PodGroup", "name", pgName, "minMember", exp.Spec.WorkerReplicas)
+
+		minMember := exp.Spec.WorkerReplicas
+		pg = &schedulingv1beta1.PodGroup{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pgName,
+				Namespace: exp.Namespace,
+			},
+			Spec: schedulingv1beta1.PodGroupSpec{
+				MinMember: minMember,
+			},
+		}
+		if err := ctrl.SetControllerReference(exp, pg, r.Scheme); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.Create(ctx, pg); err != nil {
+			return ctrl.Result{}, err
+		}
+	} else if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// 更新 Status
+	exp.Status.PodGroupName = pgName
+	exp.Status.Phase = "CreatingWorkerGroup"
+	if err := r.Status().Update(ctx, exp); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("PodGroup created, proceeding to create Workers")
+	return ctrl.Result{Requeue: true}, nil
+}
+
+// ========== 阶段 4: 创建 Workers（绑定 PodGroup + Volcano scheduler） ==========
 func (r *FLExperimentReconciler) reconcileCreatingWorkers(ctx context.Context, exp *mlv1.FLExperiment, masterSvcName string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -256,6 +304,7 @@ func (r *FLExperimentReconciler) reconcileCreatingWorkers(ctx context.Context, e
 		if err != nil && errors.IsNotFound(err) {
 			logger.Info("Creating Worker Pod", "name", workerName, "rank", i)
 
+			pgName := exp.Status.PodGroupName
 			workerPod = &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      workerName,
@@ -265,8 +314,12 @@ func (r *FLExperimentReconciler) reconcileCreatingWorkers(ctx context.Context, e
 						"role": "worker",
 						"rank": strconv.Itoa(i),
 					},
+					Annotations: map[string]string{
+						"scheduling.k8s.io/group-name": pgName,
+					},
 				},
 				Spec: corev1.PodSpec{
+					SchedulerName: "volcano",
 					Hostname:      workerName,    // Headless Service DNS 需要
 					Subdomain:     workerSvcName, // 和 Headless Service 同名
 					RestartPolicy: corev1.RestartPolicyOnFailure,
@@ -338,8 +391,8 @@ func (r *FLExperimentReconciler) reconcileCreatingWorkers(ctx context.Context, e
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
-// ========== 阶段 4: 等所有 Worker Running ==========
-func (r *FLExperimentReconciler) reconcileWaitWorkersRunning(ctx context.Context, exp *mlv1.FLExperiment) (ctrl.Result, error) {
+// ========== 阶段 5: 等 Volcano gang 调度，所有 Worker Running ==========
+func (r *FLExperimentReconciler) reconcileWaitingGangScheduled(ctx context.Context, exp *mlv1.FLExperiment) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
 	readyCount := int32(0)
@@ -443,6 +496,7 @@ func (r *FLExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&mlv1.FLExperiment{}).
 		Owns(&corev1.Pod{}).
 		Owns(&corev1.Service{}).
+		Owns(&schedulingv1beta1.PodGroup{}).
 		Complete(r)
 }
 
