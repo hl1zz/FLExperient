@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -247,6 +249,7 @@ func (r *FLExperimentReconciler) reconcileCreatingWorkers(ctx context.Context, e
 	for i := 0; i < int(exp.Spec.WorkerReplicas); i++ {
 		workerName := fmt.Sprintf("%s-worker-%d", exp.Name, i)
 		workerPods = append(workerPods, workerName)
+		datasetHostPath := localWorkerDatasetHostPath(i)
 
 		workerPod := &corev1.Pod{}
 		err := r.Get(ctx, types.NamespacedName{Name: workerName, Namespace: exp.Namespace}, workerPod)
@@ -267,6 +270,17 @@ func (r *FLExperimentReconciler) reconcileCreatingWorkers(ctx context.Context, e
 					Hostname:      workerName,    // Headless Service DNS 需要
 					Subdomain:     workerSvcName, // 和 Headless Service 同名
 					RestartPolicy: corev1.RestartPolicyOnFailure,
+					Volumes: []corev1.Volume{
+						{
+							Name: "worker-dataset",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: datasetHostPath,
+									Type: hostPathTypePtr(corev1.HostPathDirectoryOrCreate),
+								},
+							},
+						},
+					},
 					Containers: []corev1.Container{
 						{
 							Name:      "worker",
@@ -280,6 +294,7 @@ func (r *FLExperimentReconciler) reconcileCreatingWorkers(ctx context.Context, e
 								{Name: "RANK", Value: strconv.Itoa(i)},
 								{Name: "MASTER_ADDR", Value: masterAddr},
 								{Name: "ROUNDS", Value: strconv.Itoa(int(exp.Spec.Rounds))},
+								{Name: "DATASET_DIR", Value: "/data"},
 								// Pod IP 通过 Downward API 注入，Worker 注册时用
 								{
 									Name: "POD_IP",
@@ -288,6 +303,13 @@ func (r *FLExperimentReconciler) reconcileCreatingWorkers(ctx context.Context, e
 											FieldPath: "status.podIP",
 										},
 									},
+								},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "worker-dataset",
+									MountPath: "/data",
+									ReadOnly:  true,
 								},
 							},
 						},
@@ -422,4 +444,24 @@ func (r *FLExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Pod{}).
 		Owns(&corev1.Service{}).
 		Complete(r)
+}
+
+func localWorkerDatasetHostPath(workerIndex int) string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Sprintf("/tmp/fl-operator-data/worker_%d", workerIndex)
+	}
+
+	hostPath := filepath.Join(wd, "data", fmt.Sprintf("worker_%d", workerIndex))
+
+	// Docker Desktop Kubernetes 在 macOS 下通常通过这个前缀访问宿主机目录。
+	if filepath.IsAbs(hostPath) && len(hostPath) >= len("/Users/") && hostPath[:7] == "/Users/" {
+		return filepath.Join("/run/desktop/mnt/host", hostPath)
+	}
+
+	return hostPath
+}
+
+func hostPathTypePtr(t corev1.HostPathType) *corev1.HostPathType {
+	return &t
 }

@@ -164,6 +164,7 @@ elif role == "worker":
     rank = int(os.getenv("RANK"))
     master_addr = os.getenv("MASTER_ADDR")
     pod_ip = os.getenv("POD_IP", "127.0.0.1")
+    dataset_dir = os.getenv("DATASET_DIR", "/data")
 
     app = Flask(__name__)
 
@@ -248,6 +249,12 @@ elif role == "worker":
 
     def worker_loop():
         """Worker 的主循环：等待 Master 指令 → 训练 → 上传"""
+        if os.path.isdir(dataset_dir):
+            dataset_files = sorted(os.listdir(dataset_dir))
+            print(f"[Worker-{rank}] Dataset dir mounted: {dataset_dir}, files={dataset_files}")
+        else:
+            print(f"[Worker-{rank}] Dataset dir not found: {dataset_dir}")
+
         # 先注册到 Master
         if not register_to_master():
             print(f"[Worker-{rank}] Exiting due to registration failure")
